@@ -10,15 +10,8 @@ from scipy.fftpack import dct
 import matplotlib.pyplot as plt
 from PIL import Image
 
-try:
-    from icecream import install  # noqa
 
-    install()
-except ImportError:  # Graceful fallback if IceCream isn't installed.
-    ic = lambda *a: None if not a else (a[0] if len(a) == 1 else a)  # noqa
-
-
-def get_2nd_largest(x, axis=1):
+def get_2nd_largest(x: np.ndarray, axis: int = 1):
     """
     Get the index of second largest energy value in data
     """
@@ -38,27 +31,26 @@ def plot_hist(
     plt.ylabel("Frequency")
     if save_path:
         plt.savefig(save_path, bbox_inches="tight")
-    elif show:
+    if show:
         plt.show()
     else:
         plt.close()
     return hist, bin_edges
 
-def find_2nd_largest_index(data, pattern):
+def find_2nd_largest_index(data: np.ndarray, pattern: np.ndarray):
+    if pattern.ndim > 1:
+        pattern = pattern.reshape(-1)
     data[0,0] = 0
-    num = pattern.reshape(-1)
     index = np.argmax(abs(data))
-    second_largest_index=num[index]
+    second_largest_index = pattern[index]
     return second_largest_index
 
-def MAP_rule(data, prob_cheetah, prob_grass, cheetah_prior, grass_prior):
+def MAP_rule(data, prob_cheetah: np.ndarray, prob_grass: np.ndarray, cheetah_prior: float, grass_prior: float):
     """
     Compute the MAP rule for the image where cheetah = 1 and grass = 0
     """
-    img = np.zeros_like(data)
+    img = np.empty_like(data)
     
-    prior = grass_prior / cheetah_prior
-        
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
             index=int(data[i,j])
@@ -74,6 +66,7 @@ def MAP_rule(data, prob_cheetah, prob_grass, cheetah_prior, grass_prior):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--plot", action="store_true")
+    parser.add_argument("--save", action="store_true")
     args = parser.parse_args()
     
     current_dir = pathlib.Path(__file__).parent.resolve()
@@ -91,7 +84,7 @@ if __name__ == "__main__":
     mat_contents = sio.loadmat(mat_fname)
     TrainsampleDCT_BG = mat_contents["TrainsampleDCT_BG"]
     TrainsampleDCT_FG = mat_contents["TrainsampleDCT_FG"]
-    print(f"The amount of FG data: {TrainsampleDCT_FG.shape[0]}")
+    print(f"\nThe amount of FG data: {TrainsampleDCT_FG.shape[0]}")
     print(f"The amount of BG data: {TrainsampleDCT_BG.shape[0]}")
 
     m_cheetah, n_cheetah = np.shape(TrainsampleDCT_BG)
@@ -102,7 +95,7 @@ if __name__ == "__main__":
     P_grass = m_grass / (m_cheetah + m_grass)
 
     assert P_cheetah + P_grass == 1
-    print(f"The prior P_Y_cheetah: {P_cheetah}")
+    print(f"\nThe prior P_Y_cheetah: {P_cheetah}")
     print(f"The prior P_Y_grass: {P_grass}")
 
 
@@ -152,6 +145,8 @@ if __name__ == "__main__":
             processed_img[i,j] = index
     plt.imshow(processed_img)
     plt.title("DCT transform Image")
+    if args.save:
+        plt.savefig(plot_dir / "DCT", bbox_inches="tight")
         
     # P_X|Cheetah
     prob_cheetah = cheetah_hist / m_cheetah
@@ -159,17 +154,25 @@ if __name__ == "__main__":
     prob_grass = grass_hist / m_grass
 
     A = MAP_rule(processed_img, prob_cheetah, prob_grass, P_cheetah, P_grass)
-    ic(A)
+
     # equavalent to imagesc
     plt.figure(figsize=(10,10))
     plt.imshow(A, extent=[-1, 1, -1, 1])
     plt.title("imagesc Segmented Image")
+    
+    if args.plot:
+        plt.show()
+    
+    if args.save:
+        plt.savefig(plot_dir / "imagesc", bbox_inches="tight")
     
     # equvalent to colormap(gray(255))
     plt.figure(figsize=(10,10))
     plt.imshow(A,  cmap='gray')
     plt.title("Grayscale Segmented Image")
     
+    if args.save:
+        plt.savefig(plot_dir / "gray", bbox_inches="tight")
     
     # (d)
     ground_truth = Image.open(str(data_dir / "cheetah_mask.bmp"), 'r')
@@ -182,7 +185,7 @@ if __name__ == "__main__":
     
     #calculate the error
     error = 1-np.sum(ground_truth==A) / A.size
-    print(f"The probability of error: {error}")
+    print(f"\nThe probability of error: {error}")
     
     # error in the FG
     error_idex = np.where((ground_truth - A) == 1)[0]
