@@ -1,3 +1,4 @@
+```python
 import argparse
 import os
 import pathlib
@@ -201,3 +202,4 @@ if __name__ == "__main__":
         lambda event: [plt.close() if event.key in ["escape", "Q"] else None],
     )
     plt.show()
+```
