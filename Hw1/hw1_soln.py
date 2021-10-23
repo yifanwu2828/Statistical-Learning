@@ -8,6 +8,8 @@ import numpy as np
 import scipy.io as sio
 from scipy.fftpack import dct
 import matplotlib.pyplot as plt
+from matplotlib.image import imread
+
 from PIL import Image
 
 
@@ -130,9 +132,8 @@ if __name__ == "__main__":
     )
 
     # (c)
-    # fig = plt.figure(figsize=(10,10))
-    img = Image.open(str(data_dir / "cheetah.bmp"), "r")
-    img = np.asarray(img)
+    img = imread(data_dir/'cheetah.bmp')[:,:,0]
+    # original_img has dtype=uint8
     img = img.astype(np.float64) / 255
     assert img.min() == 0 and img.max() <= 1
 
@@ -148,6 +149,7 @@ if __name__ == "__main__":
             processed_img[i, j] = index
     plt.imshow(processed_img)
     plt.title("DCT transform Image")
+
     # P_X|Cheetah
     prob_cheetah = cheetah_hist / m_cheetah
     # P_X|Grass
