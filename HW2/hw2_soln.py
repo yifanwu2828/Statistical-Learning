@@ -5,10 +5,11 @@ from typing import Tuple
 
 import numpy as np
 import scipy.io as sio
-from scipy.fftpack import dct
 import matplotlib.pyplot as plt
 from matplotlib.image import imread
 from PIL import Image
+
+import utils
 
 
 try:
@@ -19,39 +20,6 @@ except ImportError:  # Graceful fallback if IceCream isn't installed.
 
 sqrt_2_PI = np.sqrt(2 * np.pi)
 
-
-def dct2(block: np.ndarray) -> np.ndarray:
-    """
-    Compute the DCT2 of the data.
-    """
-    return dct(dct(block.T, norm="ortho").T, norm="ortho")
-
-def im2double(img: np.ndarray) -> np.ndarray:
-    """
-    Converts the image to double.
-    """
-    return img.astype(np.float64) / 255
-
-def padding(img: np.ndarray, pad_size: int) -> np.ndarray:
-    """
-    Pads the image with zeros.
-    """
-    return np.pad(img, ((pad_size, pad_size), (pad_size, pad_size)), "constant")
-
-
-def imagesc(img: np.ndarray, title: str = "imagesc Segmented Image") -> None:
-    # equavalent to imagesc
-    plt.figure(figsize=(10, 10))
-    plt.imshow(img, extent=[-1, 1, -1, 1])
-    plt.title(title)
-    plt.show()
-
-def colormap_gray255(img: np.ndarray, title: str = "Grayscale Segmented Image") -> None:
-    """equvalent to colormap(gray(255))"""
-    plt.figure(figsize=(10, 10))
-    plt.imshow(img, cmap="gray")
-    plt.title(title)
-    plt.show()
 
 def load_and_compute_prior(mat_file: str) -> None:
     """
@@ -105,29 +73,6 @@ def g(x, W, w, w0):
     """
     return x.T @ W @ x + w.T @ x + w0
 
-def calculate_error(A: np.ndarray, ground_truth: np.ndarray) -> Tuple[float, float, float]:
-    """
-    compute the probability of error by comparing with cheetah mask.bmp.
-    """
-    # Truncate ground truth to have same size as segmented image
-    ground_truth = ground_truth[: A.shape[0], : A.shape[1]] / 255
-    
-    # calculate the error
-    error = 1 - np.sum(ground_truth == A) / A.size
-    print(f"The probability of error: {error}")
-
-    # error in the FG
-    error_idex = np.where((ground_truth - A) == 1)[0]
-    FG_error = len(error_idex) / A.size
-    print(f"FG error: {FG_error}")
-
-    # error in the BG
-    error_idex = np.where((ground_truth - A) == -1)[0]
-    BG_error = len(error_idex) / A.size
-    print(f"BG error is: {BG_error}")
-    
-    return error, FG_error, BG_error
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="HW2")
@@ -159,6 +104,14 @@ if __name__ == "__main__":
     mat_contents = sio.loadmat(mat_fname)
     TrainsampleDCT_BG = mat_contents["TrainsampleDCT_BG"]
     TrainsampleDCT_FG = mat_contents["TrainsampleDCT_FG"]
+    
+    subset_mat_fname = data_dir / "TrainingSamplesDCT_subsets_8.mat"
+    subsets8 = sio.loadmat(subset_mat_fname)
+    
+    TrainsampleDCT_BG = subsets8['D1_BG']
+    TrainsampleDCT_FG = subsets8['D1_FG']
+    
+    
     print(f"\nThe amount of FG data: {TrainsampleDCT_FG.shape[0]}")
     print(f"The amount of BG data: {TrainsampleDCT_BG.shape[0]}")
 
@@ -234,7 +187,7 @@ if __name__ == "__main__":
     img = np.asarray(Image.open(str(data_dir / "cheetah.bmp"), "r"))
     
     # Convert to double and / 255
-    img = im2double(img)
+    img = utils.im2double(img)
     # ic(img.shape)  # (255, 270)
     # plt.imshow(img)
     # plt.show()
@@ -294,11 +247,11 @@ if __name__ == "__main__":
                 # 8 x 8 block
                 block = img[i : i + 8, j : j + 8]
                 # DCT transform on the block
-                block_DCT = dct2(block)
+                block_DCT = utils.dct2(block)
                 # zigzag pattern mapping
                 for k in range(block_DCT.shape[0]):
                     for p in range(block_DCT.shape[1]):
-                        loc = zigzag[k, p]
+                        loc = utils.zigzag[k, p]
                         x_64[loc, :] = block_DCT[k, p]
                 
                 if g(x_64, W_FG, w_FG, w0_FG) >= g(x_64, W_BG, w_BG, w0_BG):
@@ -338,8 +291,9 @@ if __name__ == "__main__":
                 # 8 x 8 block
                 block = img[i : i + 8, j : j + 8]
                 # DCT transform on the block
-                block_DCT = dct2(block)
+                block_DCT = utils.dct2(block)
                 # zigzag pattern mapping
+                
                 for k in range(block_DCT.shape[0]):
                     for p in range(block_DCT.shape[1]):
                         loc = zigzag[k, p]
@@ -355,8 +309,8 @@ if __name__ == "__main__":
     
     
     # =======================================================================================
-    colormap_gray255(processed_img)
-    calculate_error(processed_img, ground_truth)
+    utils.colormap_gray255(processed_img)
+    utils.calculate_error(processed_img, ground_truth)
     # =======================================================================================
     
     
