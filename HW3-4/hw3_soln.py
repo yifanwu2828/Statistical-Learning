@@ -1,6 +1,9 @@
 import argparse
 import os
 import pathlib
+import math
+
+from multiprocessing import Process
 
 import numpy as np
 from numba import jit
@@ -17,7 +20,6 @@ except ImportError:  # Graceful fallback if IceCream isn't installed.
     ic = lambda *a: None if not a else (a[0] if len(a) == 1 else a)  # noqa
 
 
-
 def mu_n(sample_mean, prior_mu0, sample_cov, prior_sigma0, n: int, a_inv: np.ndarray):
     """
     a_inv = np.linalg.inv(Sigma_0 + Sigma / n)
@@ -25,9 +27,11 @@ def mu_n(sample_mean, prior_mu0, sample_cov, prior_sigma0, n: int, a_inv: np.nda
     # (64,64) @ (64,64) @ (64, 1) + (64, 64) @ (64, 64) @ (64, 1) -> (64, 1) + (64,1)
     return (prior_sigma0 @ a_inv @ sample_mean) + (sample_cov @ a_inv @ prior_mu0) / n
 
+
 @jit(nopython=True)
 def sigma_n(sigma, sigma_0, n: int, a_inv: np.ndarray):
     return sigma_0 @ a_inv * sigma / n
+
 
 @jit(nopython=True)
 def g(x, W, w, w0):
@@ -38,6 +42,8 @@ def g(x, W, w, w0):
 
 
 def ML_result(BG, FG):
+    current_dir = pathlib.Path(__file__).parent.resolve()
+    data_dir = current_dir / "data"
     TrainsampleDCT_BG = BG
     TrainsampleDCT_FG = FG
 
@@ -107,20 +113,7 @@ def ML_result(BG, FG):
     return errors_ML
 
 
-if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(description="HW2")
-    parser.add_argument("--plot", "-p", action="store_true", help="Plot the data")
-    parser.add_argument(
-        "--strategy",
-        "-s",
-        type=int,
-        choices=[1, 2],
-        required=True,
-        help="Strategy to use",
-    )
-    parser.add_argument("--test", action="store_true", help="Test the code")
-    args = parser.parse_args()
+def run(strategy, plot: bool = True, save: bool = False, test: bool = False):
     current_dir = pathlib.Path(__file__).parent.resolve()
     data_dir = current_dir / "data"
     prior1_fname = data_dir / "Prior_1.mat"
@@ -158,22 +151,23 @@ if __name__ == "__main__":
 
     # =======================================================================================
     # Handle stragtegys
-    if args.strategy == 1:
+    if strategy == 1:
         prior = prior_1
-    elif args.strategy == 2:
+    elif strategy == 2:
         prior = prior_2
     else:
         raise ValueError("Invalid strategy. Choice:[1, 2]")
 
-    print(f"Strategy: {args.strategy}")
-    
+    print(f"Strategy: {strategy}")
     err_bayes = []
     err_mle = []
     err_map = []
 
     # =======================================================================================
     pbar_idx = 0
-    for subset_idx in tqdm(range(1, 5), dynamic_ncols=True, desc=f"Subset ({pbar_idx})"):
+    for subset_idx in tqdm(
+        range(1, 5), dynamic_ncols=True, desc=f"Subset ({pbar_idx})"
+    ):
         pbar_idx += 1
         D_BG = subsets8[f"D{subset_idx}_BG"]
         D_FG = subsets8[f"D{subset_idx}_FG"]
@@ -183,8 +177,9 @@ if __name__ == "__main__":
         n_FG, m_BG = D_FG.shape
 
         # prior
-        P_BG = n_BG / (n_FG + n_BG)
-        P_FG = n_FG / (n_FG + n_BG)
+        total_samples = n_BG + n_FG
+        P_BG = n_BG / total_samples
+        P_FG = n_FG / total_samples
         print(f"\tprior_BG: {P_BG}")
         print(f"\tprior_FG: {P_FG}")
 
@@ -199,13 +194,19 @@ if __name__ == "__main__":
         BG_cov = np.cov(D_BG.T, bias=False)
         FG_cov = np.cov(D_FG.T, bias=False)
 
+        # log prior
+        logp_FG = math.log(P_FG)
+        logp_BG = math.log(P_BG)
+
         # a) Bayesian Estimation
         img_lst = []
-        print("\tBayesian Estimation")
+        print(f"\tBayesian Estimation with Strategy {strategy}")
         for a in range(alpha.shape[0]):
             processed_img = np.empty([img.shape[0] - 8, img.shape[1] - 8], dtype=bool)
             # Sigma_0 (with weight = alpha[i] )
             prior_sigma0 = np.diag((alpha[a] * prior["W0"]).flat)
+
+            # import ipdb; ipdb.set_trace()
             # * pre-compute the inverse of Sigma_0 + (Sigma / n)
             a_BG_inv = np.linalg.inv(prior_sigma0 + BG_cov / n_BG)
             a_FG_inv = np.linalg.inv(prior_sigma0 + FG_cov / n_FG)
@@ -219,19 +220,15 @@ if __name__ == "__main__":
 
             # Sum of two independent Gaussian is again a Gaussian
             # where mean is the sum of the means
-            # and whose covariance matrixis is the sum of the covariance matrices
             mu_BG = mu_n_BG
             mu_FG = mu_n_FG
-
+            # and whose covariance matrixis is the sum of the covariance matrices
             cov_BG = cov_n_BG + BG_cov
             cov_FG = cov_n_FG + FG_cov
 
             # guassian decsison bounday
-            logp_FG = np.log(P_FG)
-            logp_BG = np.log(P_BG)
-
-            logdet_BG = np.log(np.linalg.det(cov_BG))
-            logdet_FG = np.log(np.linalg.det(cov_FG))
+            logdet_BG = math.log(np.linalg.det(cov_BG))
+            logdet_FG = math.log(np.linalg.det(cov_FG))
 
             W_BG = np.linalg.inv(cov_BG)
             W_FG = np.linalg.inv(cov_FG)
@@ -267,15 +264,14 @@ if __name__ == "__main__":
         ]
         err_bayes.append(error_lst_bayes)
 
-        print("\tMaximum Likelihood Estimation")
+        print(f"\tMaximum Likelihood Estimation with Strategy {strategy}")
         error_lst_ml = ML_result(BG=D_BG, FG=D_FG)
         error_lst_ml = [error_lst_ml] * alpha.shape[0]
         err_mle.append(error_lst_ml)
 
-        
         # b) Bayes MAP Approximation
         img_lst_MAP = []
-        print("\tBayesian Estimation with MAP Approximation")
+        print(f"\tBayesian Estimation with MAP Approximation with Strategy {strategy}")
         for a in range(alpha.shape[0]):
             processed_img = np.empty([img.shape[0] - 8, img.shape[1] - 8], dtype=bool)
 
@@ -297,7 +293,7 @@ if __name__ == "__main__":
             cov_BG = BG_cov
             cov_FG = FG_cov
             # =========================================================================================
-            # guassian decsison bounday
+            # guassian decsison rule
             logdet_BG = np.log(np.linalg.det(cov_BG))
             logdet_FG = np.log(np.linalg.det(cov_FG))
 
@@ -307,11 +303,11 @@ if __name__ == "__main__":
             w_BG = -2 * W_BG @ mu_BG
             w_FG = -2 * W_FG @ mu_FG
 
-            w0_FG = mu_FG.T @ W_FG @ mu_FG + logdet_FG - 2 * logp_FG
             w0_BG = mu_BG.T @ W_BG @ mu_BG + logdet_BG - 2 * logp_BG
+            w0_FG = mu_FG.T @ W_FG @ mu_FG + logdet_FG - 2 * logp_FG
 
             # Feature vector 64 x 1
-            x_64 = np.zeros((64, 1), dtype=np.float64)
+            x_64 = np.empty((64, 1), dtype=np.float64)
             for i in range(processed_img.shape[0]):
                 for j in range(processed_img.shape[1]):
                     # # 8 x 8 block
@@ -334,16 +330,15 @@ if __name__ == "__main__":
             for img in img_lst_MAP
         ]
         err_map.append(error_lst_MAP)
-        
-        if args.test:
-            break
 
+        if test:
+            break
 
     # =========================================================================================
     # plot results
     assert len(err_bayes) == len(err_mle) == len(err_map)
     for idx in range(len(err_bayes)):
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(10, 6), dpi=300)
         plt.plot((alpha.flat), err_bayes[idx], "--o", label="Bayes_Error")
         plt.plot((alpha.flat), err_mle[idx], "--x", label="ML_Error")
         plt.plot((alpha.flat), err_map[idx], "--*", label="MAP_Error")
@@ -352,6 +347,37 @@ if __name__ == "__main__":
         plt.ylabel("PoE")
         plt.xscale("log")
         plt.grid()
-        plt.title(f"Dataset {idx+1} Strategy {args.strategy}: " + r"PE vs $\alpha$")
+        plt.title(f"Dataset {idx+1} Strategy {strategy}: " + r"PE vs $\alpha$")
         plt.legend()
-    plt.show()
+        if save:
+            plt.savefig(plot_dir / f"Dataset {idx+1} Strategy {strategy}.png")
+    if plot:
+        plt.show()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="HW2")
+    parser.add_argument("--plot", "-p", action="store_true", help="Plot the data")
+    parser.add_argument("--save", "-s", action="store_true", help="Save plots")
+    args = parser.parse_args()
+
+    strategies = [1, 2]
+    procs = []
+
+    # instantiating process with arguments
+    for s in strategies:
+        # print(name)
+        proc = Process(target=run, args=(s, args.plot, args.save))
+        procs.append(proc)
+        proc.start()
+
+    # complete the processes
+    for proc in procs:
+        proc.join()
+
+    print("Done!")
+
+
+if __name__ == "__main__":
+
+    main()
