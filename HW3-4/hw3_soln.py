@@ -335,7 +335,7 @@ def run(strategy, plot: bool = True, save: bool = False, test: bool = False):
             break
 
     # =========================================================================================
-    # plot results
+    # plot result
     assert len(err_bayes) == len(err_mle) == len(err_map)
     for idx in range(len(err_bayes)):
         plt.figure(figsize=(10, 6), dpi=300)
